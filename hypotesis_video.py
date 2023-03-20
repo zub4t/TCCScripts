@@ -91,38 +91,50 @@ def process(file_name='EXP_1'):
 
     combinations = list(itertools.combinations(responders, 3))
     zz = 0;
-    #num_rows = len(df)
-    num_rows = 30
-    for c in combinations:
-        for row_index in range(0, num_rows, 10):
-            if (row_index + 10 >= num_rows):
-                break
-            aps = []
-            combination_distances = []
-            for idx in range(row_index, row_index + 10):
-                row = df.iloc[idx]
-                ap_location = row[['xCoordinate', 'yCoordinate', 'zCoordinate']].values
+    num_rows = len(df)
+    #num_rows = 30
 
-                if(row['SSID'] in c):
-                    combination_distances.append(row.distance)
-                    aps.append(ap_location.astype(float))
+    for row_index in range(0, num_rows, 10):
+        if (row_index + 10 >= num_rows):
+            break
+        aps = []
+        print(f'group row {row_index/10}');
+        combination_distances = []
+        ap_location_all={}
+        distance_burst_report = {}
+        for idx in range(row_index, row_index + 10):
+            row = df.iloc[idx]
+            distance_burst_report[row['SSID']] = row['distance']
+            ap_location = row[['xCoordinate', 'yCoordinate', 'zCoordinate']].values
+            ap_location_all[row['SSID']] = ap_location
+        for c in combinations:
+            aux_l = []
+            aux_d = []
+            try:
+                for z in c:
+                    aux_l.append(ap_location_all[z])
+                    aux_d.append(distance_burst_report[z])
 
-            estimated_smartphone = lms(initial_guess, aps, combination_distances)
+                combination_distances = np.array(aux_d, dtype=float)
+                aps = np.array(aux_l, dtype=float)
 
-            width, length, hight = 10, 6, 10
-            plt.scatter(smartphone[0], smartphone[1], marker='o', color='blue', label='smartphone')
-            # Iterate through all Access Points and adjust the color based on the combination
-            for i, ap in enumerate(APsPlot):
-                color = 'purple' if ap[-1] in c else 'red'
-                plt.scatter(ap[0], ap[1], marker='^', color=color, label='Access Point' if i == 0 else "")
-                plt.annotate(ap[-1], (ap[0], ap[1]), xytext=(0, -15), textcoords='offset points', ha='center')
-
+                estimated_smartphone = lms(initial_guess, aps, combination_distances)
+            except:
+                print(f"error group row   {row_index/10} ")
             plt.scatter(estimated_smartphone[0], estimated_smartphone[1], marker='x', color='green')
-            plt.xlim(-1, width + 1)
-            plt.ylim(-1, length + 1)
-            plt.savefig(os.path.join('images_to_turn_into_video', f'img_{zz}.png'))
-            plt.clf()
-            zz+=1
+        print('end')
+        width, length, hight = 10, 6, 10
+        plt.scatter(smartphone[0], smartphone[1], marker='o', color='blue', label='smartphone')
+        # Iterate through all Access Points and adjust the color based on the combination
+        for i, ap in enumerate(APsPlot):
+            plt.scatter(ap[0], ap[1], marker='^', color='red', label='Access Point' if i == 0 else "")
+            plt.annotate(ap[-1], (ap[0], ap[1]), xytext=(0, -15), textcoords='offset points', ha='center')
+
+        plt.xlim(-1, width + 1)
+        plt.ylim(-1, length + 1)
+        plt.savefig(os.path.join('images_to_turn_into_video', f'img_{zz}.png'))
+        plt.clf()
+        zz+=1
 
     generate_video(num_rows, zz)
 
@@ -146,12 +158,15 @@ def generate_video(num_rows,zz):
     video.release()
 
     # Remove individual image files
-    for i in range(0, zz-1):
+    """
+       for i in range(0, zz-1):
             try:
                 filename = os.path.join('images_to_turn_into_video', f'img_{i}.png')
                 os.remove(filename)
             except:
                 pass
+
+    """
 
 
 if __name__ == '__main__':
