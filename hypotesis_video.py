@@ -5,6 +5,8 @@ import pandas as pd
 import json
 import itertools
 import operator
+import os
+import cv2
 
 aps  = np.array([])
 smartphone  = np.array([])
@@ -34,6 +36,7 @@ def add_noise(distances, std_dev):
 
 def gradient_error(smartphone, aps, measured_distances):
     """Compute gradient of error between measured and estimated distances."""
+
     estimated_distances = np.linalg.norm(aps - smartphone, axis=1)
     error = estimated_distances - measured_distances
 
@@ -51,13 +54,6 @@ def lms(guess, aps, measured_distances, learning_rate=0.01, tolerance=1e-3):
 
     return guess
 
-def plot(estimated_smartphone):
-    width, length, hight = 10, 6, 10
-
-    plt.scatter(estimated_smartphone[0], estimated_smartphone[1], marker='x', color='green')
-    plt.xlim(-1, width+1)
-    plt.ylim(-1, length+1)
-    plt.legend()
 
 
 
@@ -66,74 +62,100 @@ def process(file_name='EXP_1'):
 
     df = pd.read_csv(f'/home/marco//Documents/WiFiRTT/{file_name}.csv')
 
-    # Load the JSON file
     with open('/home/marco/Documents/WiFiRTT/mobile_location.json', "r") as f:
         data = json.load(f)
 
     exp = [obj for obj in data if obj['name'] == f'{file_name}'][0]
 
-    # Extract the properties xCoordinate, yCoordinate, zCoordinate
     x = float(exp['xCoordinate'].replace(',', '.'))
     y = float(exp['yCoordinate'].replace(',', '.'))
     z = float(exp['zCoordinate'].replace(',', '.'))
 
+    smartphone = np.array([x, y, z])
+
     # Create a numpy array from the properties
     smartphone = np.array([x, y, z])
-    plt.scatter(smartphone[0], smartphone[1], marker='o', color='blue',label='smartphone')
 
     # Initialize a list to store mean distances
     mean_distances = []
 
     # Loop through each 'FTM_RESPONDER_X
     responders = df.drop_duplicates(subset='SSID', inplace=False)['SSID']
-    APsPlot = df.drop_duplicates(subset='SSID', inplace=False)[['xCoordinate', 'yCoordinate', 'zCoordinate','SSID']].values
+    APsPlot = df.drop_duplicates(subset='SSID', inplace=False)[
+        ['xCoordinate', 'yCoordinate', 'zCoordinate', 'SSID']].values
 
-    plt.scatter(APsPlot[:, 0], APsPlot[:, 1], marker='^', color='red', label='Access Point')
-    for i, ssid in enumerate(APsPlot[:, -1]):
-        plt.annotate(ssid, (APsPlot[i, 0], APsPlot[i, 1]), xytext=(0, -15), textcoords='offset points', ha='center')
 
-    combinations = list(itertools.combinations(responders, 10))
-    print(f'Number of combination {len(combinations)}')
+
+
+
+
+    combinations = list(itertools.combinations(responders, 3))
+    zz = 0;
+    #num_rows = len(df)
+    num_rows = 30
     for c in combinations:
-        aps = []
-        for responder in c:
-            ap_location = df[df['SSID'].isin([str(responder)])][['xCoordinate', 'yCoordinate', 'zCoordinate']].iloc[0]
-            aps.append(ap_location.values)
-            # Get all the distances corresponding to this responder
-            distances = df.loc[df['SSID'] == responder, 'distance'].values
-            distances = np.maximum(distances - 1, 0.1)
-            # Calculate the mean of distances
-            mean_distance = np.mean(distances)
+        for row_index in range(0, num_rows, 10):
+            if (row_index + 10 >= num_rows):
+                break
+            aps = []
+            combination_distances = []
+            for idx in range(row_index, row_index + 10):
+                row = df.iloc[idx]
+                ap_location = row[['xCoordinate', 'yCoordinate', 'zCoordinate']].values
 
-            # Append the mean distance to the list
-            mean_distances.append(mean_distance)
+                if(row['SSID'] in c):
+                    combination_distances.append(row.distance)
+                    aps.append(ap_location.astype(float))
 
-        # Convert the list to a numpy array
-        mean_distances = np.array(mean_distances)
-        estimated_smartphone = lms(initial_guess, aps, mean_distances)
-        plot(estimated_smartphone)
-        true_distance =  np.linalg.norm(estimated_smartphone - smartphone, axis=0)
-        error_dict[str(c)]= true_distance
-        print (f'{aps}, {smartphone}, {estimated_smartphone}')
-        mean_distances = []
+            estimated_smartphone = lms(initial_guess, aps, combination_distances)
+
+            width, length, hight = 10, 6, 10
+            plt.scatter(smartphone[0], smartphone[1], marker='o', color='blue', label='smartphone')
+            # Iterate through all Access Points and adjust the color based on the combination
+            for i, ap in enumerate(APsPlot):
+                color = 'purple' if ap[-1] in c else 'red'
+                plt.scatter(ap[0], ap[1], marker='^', color=color, label='Access Point' if i == 0 else "")
+                plt.annotate(ap[-1], (ap[0], ap[1]), xytext=(0, -15), textcoords='offset points', ha='center')
+
+            plt.scatter(estimated_smartphone[0], estimated_smartphone[1], marker='x', color='green')
+            plt.xlim(-1, width + 1)
+            plt.ylim(-1, length + 1)
+            plt.savefig(os.path.join('images_to_turn_into_video', f'img_{zz}.png'))
+            plt.clf()
+            zz+=1
+
+    generate_video(num_rows, zz)
+
+def generate_video(num_rows,zz):
+    img_array = []
+    for i in range(0,zz-1):
+        try:
+            filename = os.path.join('images_to_turn_into_video',f'img_{i}.png')
+            img = cv2.imread(filename)
+            height, width, layers = img.shape
+            size = (width, height)
+            img_array.append(img)
+        except:
+            print(os.path.join('images_to_turn_into_video',f'img_{i}.png'))
+
+    video_name = 'estimated_positions_video.mp4'
+    video = cv2.VideoWriter(video_name, cv2.VideoWriter_fourcc(*'MP4V'), 10, size)
+
+    for i in range(len(img_array)):
+        video.write(img_array[i])
+    video.release()
+
+    # Remove individual image files
+    for i in range(0, zz-1):
+            try:
+                filename = os.path.join('images_to_turn_into_video', f'img_{i}.png')
+                os.remove(filename)
+            except:
+                pass
+
+
 if __name__ == '__main__':
-    process('EXP_52')
-    plt.savefig('combination_guesses.png')
-    plt.show()
-
-    # sort the dictionary by error value in ascending order
-    sorted_dict = dict(sorted(error_dict.items(), key=operator.itemgetter(1)))
-
-    # write the top n combinations to a text file
-    with open('top_combinations.txt', 'w') as f:
-        f.write('Top  Combinations\n')
-        f.write('------------------\n')
-        f.write('Combination\tError\n')
-        for i, (key, value) in enumerate(sorted_dict.items()):
-
-            f.write('%s\t\t%.2f\n' % (str(key), value))
-
-
+    process('EXP_50')
     #print(estimated_smartphone)
     #
 def get_error():
